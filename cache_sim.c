@@ -23,6 +23,11 @@ typedef struct {
   // remove the accesses or hits
 } cache_stat_t;
 
+typedef struct {
+    uint32_t tag; 
+    int valid;      
+} cache_block_t;
+
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
 uint32_t cache_size;
@@ -58,7 +63,18 @@ mem_access_t read_transaction(FILE* ptr_file) {
 }
 
 
-
+void access_cache(cache_block_t cache[], uint32_t address, int index_size) {
+  uint32_t index = (address / block_size) % index_size;
+  uint32_t tag = address / block_size;
+  if (cache[index].valid && cache[index].tag == tag) {
+    // cache hit
+    cache_statistics.hits++;
+  } else {
+    // cache miss
+    cache[index].valid = 1;
+    cache[index].tag = tag;
+  }
+}
 
 
 void main(int argc, char** argv) {
@@ -113,25 +129,40 @@ void main(int argc, char** argv) {
     exit(1);
   }
 
+
+  //Declare all caches
+  cache_block_t data_cache[64]; 
+  cache_block_t instruction_cache[64];
+  cache_block_t unified_cache[64];
+
+  // Initialize all caches
+  initialize_cache(data_cache, 64);
+  initialize_cache(instruction_cache, 64);
+  initialize_cache(unified_cache, 64);
+
+
   /* Loop until whole trace file has been read */
   mem_access_t access;
   while (1) {
     access = read_transaction(ptr_file);
     // If no transactions left, break out of loop
     if (access.address == 0) break;
-
     cache_statistics.accesses++;
     printf("%d %x\n", access.accesstype, access.address);
     /* Do a cache access */
-    // ADD YOUR CODE HERE
+    if (cache_org == uc) {
+      access_cache(unified_cache, access.address, 64);
+    } else {
+       if (access.accesstype == data) {
+        access_cache(data_cache, access.address, 64);
+       } else {
+        access_cache(instruction_cache, access.address, 64);
+       }
+    }
   }
 
-  if (cache_org == sc) {
-    printf("Split");
-  } else {
-    printf("Unified");
-  }
-    
+
+
 
   /* Print the statistics */
   // DO NOT CHANGE THE FOLLOWING LINES!
