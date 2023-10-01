@@ -17,7 +17,6 @@ typedef struct {
 typedef struct {
   uint64_t accesses;
   uint64_t hits;
-  uint64_t evicts;
 } cache_stat_t;
 
 //strucure for block
@@ -94,7 +93,6 @@ void access_cache_fa(cache_block_t cache[], uint32_t address, int size) {
         }
     }
     //cache miss, replaces the next block
-  cache_statistics.evicts++;                      //didn't get this to work correctly, according to testcases
   cache[replace_counter].valid = 1;               //now contains correct data
   cache[replace_counter].tag = tag;               //gives it the appropiate tag
 
@@ -217,7 +215,7 @@ void main(int argc, char** argv) {
          (double)cache_statistics.hits / cache_statistics.accesses);
   // DO NOT CHANGE UNTIL HERE
   // You can extend the memory statistic printing if you like!
-  printf("Evicts:     %ld\n", cache_statistics.evicts);
+
 
 
   //freeing up memory allocated
