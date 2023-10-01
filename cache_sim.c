@@ -17,16 +17,19 @@ typedef struct {
 typedef struct {
   uint64_t accesses;
   uint64_t hits;
+  uint64_t evicts;
 } cache_stat_t;
 
+//strucure for block
 typedef struct {
-    uint32_t tag;
-    int valid;
-    uint32_t counter;
+    uint32_t tag;   //address
+    int valid;      //used to check validity of the block, 1-0
 } cache_block_t;
 
+//Pointers to array for split cache:
 cache_block_t* data_cache; 
 cache_block_t* instruction_cache;
+//Pointer to array for unified cache
 cache_block_t* unified_cache;
 
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
@@ -64,36 +67,41 @@ mem_access_t read_transaction(FILE* ptr_file) {
 }
 
 void access_cache_dm(cache_block_t cache[], uint32_t address, int size) {
-  uint32_t tag = address / block_size;
-  uint32_t i = tag % size;
+  uint32_t tag = address / block_size;    //find tag from address, used to see if the data stored is correct
+  uint32_t i = tag % size;      //index in the cache, wraps around
 
-  if (cache[i].valid && cache[i].tag == tag) {
+  if (cache[i].valid && cache[i].tag == tag) {   //if the block is valid and the calculated tag matches the stored tag it's a hit
     //cache hit
-    cache_statistics.hits++;
+    cache_statistics.hits++;      //adds hit to statistics
+    return;
   } else {
     //cache miss
-    cache[i].valid = 1;
-    cache[i].tag = tag;
+    cache[i].valid = 1;           //sets the bloct to valid
+    cache[i].tag = tag;           //updates the tag
   }
 }
-void access_cache_fa(cache_block_t cache[], uint32_t address, int size) {
-  uint32_t tag = address / block_size;
-  static int replace_counter = 0;
 
-  //Search the entire cache for the tag
-    for (int j = 0; j < size; j++) {
-        if (cache[j].valid && cache[j].tag == tag) {
-            //cache hit
-            cache_statistics.hits++;
-            return;
+void access_cache_fa(cache_block_t cache[], uint32_t address, int size) {
+  uint32_t tag = address / block_size; 
+  static int replace_counter = 0;   //used to see what was first in
+
+  //Search entire cache for tag
+    for (int i = 0; i < size; i++) {
+        if (cache[i].valid && cache[i].tag == tag) {    //hit works the same as in dm
+          //cache hit
+          cache_statistics.hits++;
+          return;
         }
     }
     //cache miss, replaces the next block
-    cache[replace_counter].valid = 1;
-    cache[replace_counter].tag = tag;
-    replace_counter = (replace_counter + 1) % size;
-}
+  cache_statistics.evicts++;                      //didn't get this to work correctly, according to testcases
+  cache[replace_counter].valid = 1;               //now contains correct data
+  cache[replace_counter].tag = tag;               //gives it the appropiate tag
 
+  replace_counter = (replace_counter + 1) % size; //increments the counter, and wraps around
+
+}
+//initializing, iterates through the cache and sets all blocks invalid and without tags
 void initialize_cache(cache_block_t cache[], int size) {
   for (int i = 0; i < size; i++) {
     cache[i].valid = 0;
@@ -145,27 +153,27 @@ void main(int argc, char** argv) {
       exit(0);
     }
   }
-      uint32_t num_of_blocks = cache_size / block_size;
-
 
   /* Open the file mem_trace.txt to read memory accesses */
   FILE* ptr_file;
-  ptr_file = fopen("mem_trace2.txt", "r");
+  ptr_file = fopen("d100hit.txt", "r"); ///////////////////////////////////////////filnavn
   if (!ptr_file) {
     printf("Unable to open the trace file\n");
     exit(1);
   }
 
-  //Declaring all caches, data and instruction for split.
+  uint32_t num_of_blocks = cache_size / block_size;
+  //Allocating memory based on number of blocks and the size, points to the array.
+  //Split cache:
   data_cache = (cache_block_t*)malloc(num_of_blocks * sizeof(cache_block_t));
   instruction_cache = (cache_block_t*)malloc(num_of_blocks * sizeof(cache_block_t));
+  //unified cache:
   unified_cache = (cache_block_t*)malloc(num_of_blocks * sizeof(cache_block_t));
 
-  // Initializing all caches
-  initialize_cache(data_cache, num_of_blocks);
-  initialize_cache(instruction_cache, num_of_blocks);
+  // Initializing all caches, split the size between data and instructions for sc
+  initialize_cache(data_cache, num_of_blocks/2);
+  initialize_cache(instruction_cache, num_of_blocks/2);
   initialize_cache(unified_cache, num_of_blocks);
-
 
   /* Loop until whole trace file has been read */
   mem_access_t access;
@@ -176,7 +184,7 @@ void main(int argc, char** argv) {
     cache_statistics.accesses++;
     printf("%d %x\n", access.accesstype, access.address);
     /* Do a cache access */
-    //selecting which cache to access
+    //Straight forward if else(even though it is a bit messy), that chooses between dm/uc, and then data/instruction if sc
     if (cache_mapping == dm) {
         if (cache_org == uc) {
             access_cache_dm(unified_cache, access.address, num_of_blocks);
@@ -209,7 +217,10 @@ void main(int argc, char** argv) {
          (double)cache_statistics.hits / cache_statistics.accesses);
   // DO NOT CHANGE UNTIL HERE
   // You can extend the memory statistic printing if you like!
+  printf("Evicts:     %ld\n", cache_statistics.evicts);
 
+
+  //freeing up memory allocated
   free(data_cache);
   free(instruction_cache);
   free(unified_cache);
@@ -217,7 +228,3 @@ void main(int argc, char** argv) {
   /* Close the trace file */
   fclose(ptr_file);
 }
-
-
-
-
