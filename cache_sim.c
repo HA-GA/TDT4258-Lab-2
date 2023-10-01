@@ -8,6 +8,7 @@ typedef enum { dm, fa } cache_map_t;
 typedef enum { uc, sc } cache_org_t;
 typedef enum { instruction, data } access_t;
 
+
 typedef struct {
   uint32_t address;
   access_t accesstype;
@@ -16,17 +17,17 @@ typedef struct {
 typedef struct {
   uint64_t accesses;
   uint64_t hits;
-
-
-  // You can declare additional statistics if
-  // you like, however you are now allowed to
-  // remove the accesses or hits
 } cache_stat_t;
 
 typedef struct {
-    uint32_t tag; 
-    int valid;      
+    uint32_t tag;
+    int valid;
+    uint32_t counter;
 } cache_block_t;
+
+cache_block_t* data_cache; 
+cache_block_t* instruction_cache;
+cache_block_t* unified_cache;
 
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
@@ -62,17 +63,41 @@ mem_access_t read_transaction(FILE* ptr_file) {
   return access;
 }
 
-
-void access_cache(cache_block_t cache[], uint32_t address, int index_size) {
-  uint32_t index = (address / block_size) % index_size;
+void access_cache_dm(cache_block_t cache[], uint32_t address, int size) {
   uint32_t tag = address / block_size;
-  if (cache[index].valid && cache[index].tag == tag) {
-    // cache hit
+  uint32_t i = tag % size;
+
+  if (cache[i].valid && cache[i].tag == tag) {
+    //cache hit
     cache_statistics.hits++;
   } else {
-    // cache miss
-    cache[index].valid = 1;
-    cache[index].tag = tag;
+    //cache miss
+    cache[i].valid = 1;
+    cache[i].tag = tag;
+  }
+}
+void access_cache_fa(cache_block_t cache[], uint32_t address, int size) {
+  uint32_t tag = address / block_size;
+  static int replace_counter = 0;
+
+  //Search the entire cache for the tag
+    for (int j = 0; j < size; j++) {
+        if (cache[j].valid && cache[j].tag == tag) {
+            //cache hit
+            cache_statistics.hits++;
+            return;
+        }
+    }
+    //cache miss, replaces the next block
+    cache[replace_counter].valid = 1;
+    cache[replace_counter].tag = tag;
+    replace_counter = (replace_counter + 1) % size;
+}
+
+void initialize_cache(cache_block_t cache[], int size) {
+  for (int i = 0; i < size; i++) {
+    cache[i].valid = 0;
+    cache[i].tag = 0;
   }
 }
 
@@ -120,25 +145,26 @@ void main(int argc, char** argv) {
       exit(0);
     }
   }
+      uint32_t num_of_blocks = cache_size / block_size;
+
 
   /* Open the file mem_trace.txt to read memory accesses */
   FILE* ptr_file;
-  ptr_file = fopen("mem_trace.txt", "r");
+  ptr_file = fopen("mem_trace2.txt", "r");
   if (!ptr_file) {
     printf("Unable to open the trace file\n");
     exit(1);
   }
 
+  //Declaring all caches, data and instruction for split.
+  data_cache = (cache_block_t*)malloc(num_of_blocks * sizeof(cache_block_t));
+  instruction_cache = (cache_block_t*)malloc(num_of_blocks * sizeof(cache_block_t));
+  unified_cache = (cache_block_t*)malloc(num_of_blocks * sizeof(cache_block_t));
 
-  //Declare all caches
-  cache_block_t data_cache[64]; 
-  cache_block_t instruction_cache[64];
-  cache_block_t unified_cache[64];
-
-  // Initialize all caches
-  initialize_cache(data_cache, 64);
-  initialize_cache(instruction_cache, 64);
-  initialize_cache(unified_cache, 64);
+  // Initializing all caches
+  initialize_cache(data_cache, num_of_blocks);
+  initialize_cache(instruction_cache, num_of_blocks);
+  initialize_cache(unified_cache, num_of_blocks);
 
 
   /* Loop until whole trace file has been read */
@@ -150,20 +176,29 @@ void main(int argc, char** argv) {
     cache_statistics.accesses++;
     printf("%d %x\n", access.accesstype, access.address);
     /* Do a cache access */
-    if (cache_org == uc) {
-      access_cache(unified_cache, access.address, 64);
+    //selecting which cache to access
+    if (cache_mapping == dm) {
+        if (cache_org == uc) {
+            access_cache_dm(unified_cache, access.address, num_of_blocks);
+        } else {
+            if (access.accesstype == data) {
+                access_cache_dm(data_cache, access.address, num_of_blocks);
+            } else {
+                access_cache_dm(instruction_cache, access.address, num_of_blocks);
+            }
+        }
     } else {
-       if (access.accesstype == data) {
-        access_cache(data_cache, access.address, 64);
-       } else {
-        access_cache(instruction_cache, access.address, 64);
-       }
+        if (cache_org == uc) {
+            access_cache_fa(unified_cache, access.address, num_of_blocks);
+        } else {
+            if (access.accesstype == data) {
+                access_cache_fa(data_cache, access.address, num_of_blocks);
+            } else {
+                access_cache_fa(instruction_cache, access.address, num_of_blocks);
+            }
+        }
     }
-  }
-
-
-
-
+}
   /* Print the statistics */
   // DO NOT CHANGE THE FOLLOWING LINES!
   printf("\nCache Statistics\n");
@@ -175,6 +210,14 @@ void main(int argc, char** argv) {
   // DO NOT CHANGE UNTIL HERE
   // You can extend the memory statistic printing if you like!
 
+  free(data_cache);
+  free(instruction_cache);
+  free(unified_cache);
+
   /* Close the trace file */
   fclose(ptr_file);
 }
+
+
+
+
